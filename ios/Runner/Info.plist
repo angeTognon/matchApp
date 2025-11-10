@@ -45,5 +45,21 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	
+	<!-- Permissions descriptions -->
+	<key>NSCameraUsageDescription</key>
+	<string>Cette application a besoin d'accéder à votre appareil photo pour prendre des photos de profil et de logo d'équipe.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Cette application a besoin d'accéder à votre microphone pour les appels vocaux avec les autres coachs.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Cette application a besoin d'accéder à votre localisation pour trouver des équipes et des matchs proches de vous.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Cette application a besoin d'accéder à votre localisation pour trouver des équipes et des matchs proches de vous.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Cette application a besoin d'accéder à votre localisation pour trouver des équipes et des matchs proches de vous.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Cette application a besoin d'accéder à vos photos pour choisir une image de profil ou de logo d'équipe.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Cette application a besoin d'accéder à vos photos pour sauvegarder des images.</string>
 </dict>
 </plist>

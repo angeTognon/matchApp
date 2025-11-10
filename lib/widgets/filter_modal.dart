@@ -19,17 +19,59 @@ class FilterModal extends StatefulWidget {
 class _FilterModalState extends State<FilterModal> {
   late Map<String, String> _tempFilters;
 
-  final List<String> _categories = [
-    'Toutes', 'U6', 'U8', 'U10', 'U12', 'U14', 'U16', 'U17', 'U19', 'Séniors', 'Vétérans'
+  // Catégories pour les hommes
+  final List<String> _maleCategories = [
+    'Toutes', 'U8', 'U9', 'U10', 'U11', 'U12', 'U13', 'U14', 'U15', 'U16', 'U17', 'U18', 'U19', 'U20', 'Séniors', 'Vétérans'
   ];
+  
+  // Catégories pour les femmes
+  final List<String> _femaleCategories = [
+    'Toutes', 'U11', 'U13', 'U15', 'U17', 'U19', 'Séniors'
+  ];
+  
   final List<String> _levels = ['Tous', 'Loisir', 'Départemental', 'Régional', 'National'];
   final List<String> _distances = ['Toutes', '5 km', '10 km', '25 km', '50 km'];
-  final List<String> _genders = ['Tous', 'Masculin', 'Féminin', 'Mixte'];
+  final List<String> _genders = ['Tous', 'Masculin', 'Féminin'];
 
   @override
   void initState() {
     super.initState();
     _tempFilters = Map.from(widget.filters);
+    
+    // S'assurer que les filtres ont des valeurs par défaut
+    _tempFilters.putIfAbsent('category', () => '');
+    _tempFilters.putIfAbsent('level', () => '');
+    _tempFilters.putIfAbsent('gender', () => '');
+    _tempFilters.putIfAbsent('distance', () => '');
+  }
+  
+  // Convertir la valeur d'affichage en valeur API
+  String _getApiValue(String displayValue, String filterType) {
+    // Les valeurs "Toutes" ou "Tous" deviennent des chaînes vides
+    if (displayValue == 'Toutes' || displayValue == 'Tous') {
+      return '';
+    }
+    return displayValue;
+  }
+  
+  // Convertir la valeur API en valeur d'affichage
+  String _getDisplayValue(String apiValue, String filterType) {
+    if (apiValue.isEmpty) {
+      return filterType == 'category' ? 'Toutes' : 'Tous';
+    }
+    return apiValue;
+  }
+
+  // Obtenir les catégories en fonction du genre sélectionné
+  List<String> _getCategoriesForGender(String gender) {
+    switch (gender) {
+      case 'Masculin':
+        return _maleCategories;
+      case 'Féminin':
+        return _femaleCategories;
+      default:
+        return _maleCategories; // Par défaut, afficher les catégories masculines
+    }
   }
 
   @override
@@ -74,7 +116,7 @@ class _FilterModalState extends State<FilterModal> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildFilterSection('Catégorie', _categories, 'category'),
+                  _buildFilterSection('Catégorie', _getCategoriesForGender(_getDisplayValue(_tempFilters['gender'] ?? '', 'gender')), 'category'),
                   const SizedBox(height: 25),
                   _buildFilterSection('Niveau', _levels, 'level'),
                   const SizedBox(height: 25),
@@ -135,6 +177,20 @@ class _FilterModalState extends State<FilterModal> {
   }
 
   Widget _buildFilterSection(String title, List<String> options, String filterKey) {
+    // Obtenir la valeur d'affichage actuelle
+    final currentApiValue = _tempFilters[filterKey] ?? '';
+    final currentDisplayValue = _getDisplayValue(currentApiValue, filterKey);
+    
+    // Si c'est la section catégorie et que la catégorie actuelle n'est pas dans les options disponibles,
+    // réinitialiser à "Toutes"
+    if (filterKey == 'category' && currentDisplayValue != 'Toutes' && !options.contains(currentDisplayValue)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        setState(() {
+          _tempFilters[filterKey] = '';
+        });
+      });
+    }
+    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -151,9 +207,13 @@ class _FilterModalState extends State<FilterModal> {
           spacing: 8,
           runSpacing: 8,
           children: options.map((option) {
-            final isSelected = _tempFilters[filterKey] == option;
+            final isSelected = currentDisplayValue == option;
             return GestureDetector(
-              onTap: () => setState(() => _tempFilters[filterKey] = option),
+              onTap: () {
+                setState(() {
+                  _tempFilters[filterKey] = _getApiValue(option, filterKey);
+                });
+              },
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 decoration: BoxDecoration(

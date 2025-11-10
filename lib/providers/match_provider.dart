@@ -1,144 +1,304 @@
 import 'package:flutter/material.dart';
 import 'package:amical_club/models/match.dart';
+import 'package:amical_club/services/api_service.dart';
 
-class MatchProvider extends ChangeNotifier {
+class MatchProvider with ChangeNotifier {
   List<Match> _matches = [];
+  List<Match> _filteredMatches = [];
   bool _isLoading = false;
+  String? _errorMessage;
+  Map<String, String> _filters = {
+    'category': '',
+    'level': '',
+    'gender': '',
+    'search': '',
+    'distance': '',
+  };
 
-  List<Match> get matches => _matches;
+  // Getters
+  List<Match> get matches => _filteredMatches;
+  List<Match> get allMatches => _matches;
   bool get isLoading => _isLoading;
-
-  MatchProvider() {
-    _loadSampleMatches();
+  String? get errorMessage => _errorMessage;
+  Map<String, String> get filters => _filters;
+  
+  // Statistiques
+  int get matchesThisMonth {
+    final now = DateTime.now();
+    final currentMonth = now.month;
+    final currentYear = now.year;
+    
+    return _matches.where((match) {
+      return match.date.month == currentMonth && match.date.year == currentYear;
+    }).length;
+  }
+  
+  int get nearbyTeamsCount {
+    // Compter le nombre d'équipes uniques dans les matchs
+    final uniqueTeams = <String>{};
+    for (var match in _matches) {
+      uniqueTeams.add(match.teamName);
+    }
+    return uniqueTeams.length;
   }
 
-  void _loadSampleMatches() {
-    _matches = [
-      Match(
-        id: '1',
-        teamName: 'FC Marseille Amateur',
-        coachName: 'Pierre Martin',
-        category: 'Séniors',
-        level: 'Départemental',
-        date: DateTime(2025, 1, 20),
-        time: '15:00',
-        location: 'Marseille, Stade Municipal',
-        distance: '2.5 km',
-        status: MatchStatus.available,
-        createdBy: 'other',
-        description: 'Nous recherchons une équipe de niveau similaire pour un match amical.',
-        facilities: ['Vestiaires', 'Douches', 'Parking', 'Buvette'],
-      ),
-      Match(
-        id: '2',
-        teamName: 'AS Lyon Jeunes',
-        coachName: 'Marc Dubois',
-        category: 'U17',
-        level: 'Régional',
-        date: DateTime(2025, 1, 22),
-        time: '14:30',
-        location: 'Lyon, Complexe Sportif',
-        distance: '5.2 km',
-        status: MatchStatus.available,
-        createdBy: 'other',
-      ),
-      Match(
-        id: '3',
-        teamName: 'Mon Match en Attente',
-        coachName: 'Jean Dupont',
-        category: 'U19',
-        level: 'Départemental',
-        date: DateTime(2025, 1, 28),
-        time: '15:30',
-        location: 'Marseille, Stade Nord',
-        distance: '1.2 km',
-        status: MatchStatus.requestsReceived,
-        createdBy: 'me',
-        requestsCount: 3,
-      ),
-      Match(
-        id: '4',
-        teamName: 'FC Salon Séniors',
-        coachName: 'Jean Dupont',
-        category: 'Séniors',
-        level: 'Départemental',
-        date: DateTime(2025, 1, 18),
-        time: '15:00',
-        location: 'Salon-de-Provence',
-        distance: '15.3 km',
-        status: MatchStatus.finished,
-        createdBy: 'me',
-        homeScore: '2',
-        awayScore: '1',
-      ),
-    ];
+  // Charger tous les matchs
+  Future<void> loadMatches({String? token}) async {
+    if (token == null) return;
+    
+    _setLoading(true);
+    _clearError();
+
+    try {
+      final response = await ApiService.getMatches(
+        token: token,
+        category: _filters['category']?.isNotEmpty == true ? _filters['category'] : null,
+        level: _filters['level']?.isNotEmpty == true ? _filters['level'] : null,
+        gender: _filters['gender']?.isNotEmpty == true ? _filters['gender'] : null,
+        search: _filters['search']?.isNotEmpty == true ? _filters['search'] : null,
+        status: 'pending',
+      );
+
+      if (response['success'] == true) {
+        final List<dynamic> matchesData = response['data']['matches'];
+        _matches = matchesData.map((json) => Match.fromJson(json)).toList();
+        _applyFilters();
+      } else {
+        _setError(response['message'] ?? 'Erreur lors du chargement des matchs');
+      }
+    } catch (e) {
+      _setError('Erreur de connexion: $e');
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  // Charger les détails d'un match
+  Future<Match?> loadMatchDetails({required String token, required String matchId}) async {
+    try {
+      final response = await ApiService.getMatch(
+        token: token,
+        matchId: matchId,
+      );
+
+      if (response['success'] == true) {
+        return Match.fromJson(response['data']['match']);
+      } else {
+        _setError(response['message'] ?? 'Erreur lors du chargement du match');
+        return null;
+      }
+    } catch (e) {
+      _setError('Erreur de connexion: $e');
+      return null;
+    }
+  }
+
+  // Faire une demande de match
+  Future<bool> requestMatch({
+    required String token,
+    required String matchId,
+    required String teamId,
+    String? message,
+  }) async {
+    try {
+      final response = await ApiService.requestMatch(
+        token: token,
+        matchId: matchId,
+        teamId: teamId,
+        message: message,
+      );
+
+      if (response['success'] == true) {
+        // Mettre à jour le match local si nécessaire
+        final matchIndex = _matches.indexWhere((match) => match.id == matchId);
+        if (matchIndex != -1) {
+          _matches[matchIndex] = _matches[matchIndex].copyWith(
+            userHasRequested: true,
+            status: response['data']['status'] == 'accepted' 
+                ? MatchStatus.confirmed 
+                : MatchStatus.requestsSent,
+          );
+          _applyFilters();
+        }
+        return true;
+      } else {
+        _setError(response['message'] ?? 'Erreur lors de la demande de match');
+        return false;
+      }
+    } catch (e) {
+      _setError('Erreur de connexion: $e');
+      return false;
+    }
+  }
+
+  // Appliquer les filtres
+  void applyFilters({
+    String? category,
+    String? level,
+    String? gender,
+    String? search,
+    String? distance,
+  }) {
+    if (category != null) _filters['category'] = category;
+    if (level != null) _filters['level'] = level;
+    if (gender != null) _filters['gender'] = gender;
+    if (search != null) _filters['search'] = search;
+    if (distance != null) _filters['distance'] = distance;
+
+    _applyFilters();
+  }
+
+  // Réinitialiser les filtres
+  void resetFilters() {
+    _filters = {
+      'category': '',
+      'level': '',
+      'gender': '',
+      'search': '',
+      'distance': '',
+    };
+    _applyFilters();
+  }
+
+  // Appliquer les filtres internes
+  void _applyFilters() {
+    _filteredMatches = _matches.where((match) {
+      // Filtre par catégorie
+      if (_filters['category']?.isNotEmpty == true && 
+          match.category != _filters['category']) {
+        return false;
+      }
+
+      // Filtre par niveau
+      if (_filters['level']?.isNotEmpty == true && 
+          match.level != _filters['level']) {
+        return false;
+      }
+
+      // Filtre par genre
+      if (_filters['gender']?.isNotEmpty == true && 
+          match.gender != _filters['gender']) {
+        return false;
+      }
+
+      // Filtre par recherche
+      if (_filters['search']?.isNotEmpty == true) {
+        final searchTerm = _filters['search']!.toLowerCase();
+        if (!match.teamName.toLowerCase().contains(searchTerm) &&
+            !match.clubName.toLowerCase().contains(searchTerm) &&
+            !match.location.toLowerCase().contains(searchTerm)) {
+          return false;
+        }
+      }
+
+      // Filtre par distance
+      if (_filters['distance']?.isNotEmpty == true) {
+        final maxDistance = _parseDistance(_filters['distance']!);
+        final matchDistance = _parseDistance(match.distance);
+        if (matchDistance > maxDistance) {
+          return false;
+        }
+      }
+
+      return true;
+    }).toList();
+
+    notifyListeners();
+  }
+  
+  // Parser la distance (ex: "5 km" -> 5.0, "12.5 km" -> 12.5)
+  double _parseDistance(String distance) {
+    try {
+      final numString = distance.replaceAll(RegExp(r'[^0-9.]'), '').trim();
+      return double.tryParse(numString) ?? 999999.0;
+    } catch (e) {
+      return 999999.0;
+    }
+  }
+
+  // Méthodes privées
+  void _setLoading(bool loading) {
+    _isLoading = loading;
     notifyListeners();
   }
 
-  Future<void> createMatch(Map<String, dynamic> matchData) async {
-    _isLoading = true;
-    notifyListeners();
-
-    await Future.delayed(const Duration(seconds: 1));
-
-    final newMatch = Match(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      teamName: matchData['teamName'],
-      coachName: 'Jean Dupont',
-      category: matchData['category'],
-      level: matchData['level'],
-      date: DateTime.parse(matchData['date']),
-      time: matchData['time'],
-      location: matchData['location'],
-      distance: '0 km',
-      status: MatchStatus.pending,
-      createdBy: 'me',
-      description: matchData['notes'],
-    );
-
-    _matches.insert(0, newMatch);
-    _isLoading = false;
+  void _setError(String error) {
+    _errorMessage = error;
     notifyListeners();
   }
 
-  Future<void> updateMatchScore(String matchId, String homeScore, String awayScore, 
-      List<String> homeScorers, List<String> awayScorers, String notes) async {
-    _isLoading = true;
-    notifyListeners();
+  void _clearError() {
+    _errorMessage = null;
+  }
 
-    await Future.delayed(const Duration(seconds: 1));
-
-    final matchIndex = _matches.indexWhere((match) => match.id == matchId);
-    if (matchIndex != -1) {
-      _matches[matchIndex] = _matches[matchIndex].copyWith(
+  // Mettre à jour le score d'un match
+  Future<bool> updateMatchScore({
+    required String token,
+    required String matchId,
+    required String homeScore,
+    required String awayScore,
+    required List<String> homeScorers,
+    required List<String> awayScorers,
+    String? notes,
+  }) async {
+    try {
+      final response = await ApiService.updateMatchScore(
+        token: token,
+        matchId: matchId,
         homeScore: homeScore,
         awayScore: awayScore,
         homeScorers: homeScorers,
         awayScorers: awayScorers,
         notes: notes,
-        status: MatchStatus.finished,
       );
-    }
 
-    _isLoading = false;
-    notifyListeners();
+      if (response['success'] == true) {
+        // Mettre à jour le match local
+        final matchIndex = _matches.indexWhere((match) => match.id == matchId);
+        if (matchIndex != -1) {
+          _matches[matchIndex] = _matches[matchIndex].copyWith(
+            homeScore: homeScore,
+            awayScore: awayScore,
+            homeScorers: homeScorers,
+            awayScorers: awayScorers,
+            notes: notes,
+            status: MatchStatus.finished,
+          );
+          _applyFilters();
+        }
+        return true;
+      } else {
+        _setError(response['message'] ?? 'Erreur lors de la mise à jour du score');
+        return false;
+      }
+    } catch (e) {
+      _setError('Erreur de connexion: $e');
+      return false;
+    }
   }
 
-  Future<void> sendMatchRequest(String matchId) async {
-    final matchIndex = _matches.indexWhere((match) => match.id == matchId);
-    if (matchIndex != -1) {
-      _matches[matchIndex] = _matches[matchIndex].copyWith(
-        status: MatchStatus.requestsSent,
-      );
-      notifyListeners();
-    }
-  }
-
-  Match? getMatchById(String id) {
+  // Obtenir un match par son ID
+  Match? getMatchById(String matchId) {
     try {
-      return _matches.firstWhere((match) => match.id == id);
+      return _matches.firstWhere((match) => match.id == matchId);
     } catch (e) {
       return null;
     }
+  }
+
+  // Nettoyer les données
+  void clear() {
+    _matches.clear();
+    _filteredMatches.clear();
+    _filters = {
+      'category': '',
+      'level': '',
+      'gender': '',
+      'search': '',
+      'distance': '',
+    };
+    _errorMessage = null;
+    _isLoading = false;
+    notifyListeners();
   }
 }

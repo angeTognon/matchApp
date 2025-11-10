@@ -7,12 +7,17 @@ import 'package:amical_club/screens/auth/forgot_password_screen.dart';
 import 'package:amical_club/screens/main/main_screen.dart';
 import 'package:amical_club/screens/match/match_detail_screen.dart';
 import 'package:amical_club/screens/match/match_score_screen.dart';
-import 'package:amical_club/screens/match/match_requests_screen.dart';
+import 'package:amical_club/screens/match/match_requests_screen.dart' as all_requests;
 import 'package:amical_club/screens/team/team_profile_screen.dart';
 import 'package:amical_club/screens/chat/chat_screen.dart';
+import 'package:amical_club/screens/chat/conversations_screen.dart';
 import 'package:amical_club/screens/contact/contact_screen.dart';
 import 'package:amical_club/screens/map/map_screen.dart';
 import 'package:amical_club/screens/settings/privacy_screen.dart';
+import 'package:amical_club/screens/team/edit_team_screen.dart';
+import 'package:amical_club/screens/profile/edit_profile_screen.dart';
+import 'package:amical_club/screens/match/my_matches_screen.dart';
+import 'package:amical_club/screens/match/edit_match_screen.dart';
 
 class AppRouter {
   static final GoRouter router = GoRouter(
@@ -76,9 +81,17 @@ class AppRouter {
         ),
       ),
       GoRoute(
-        path: '/match/:id/requests',
-        builder: (context, state) => MatchRequestsScreen(
-          matchId: state.pathParameters['id']!,
+        path: '/match-requests',
+        builder: (context, state) => const all_requests.MatchRequestsScreen(),
+      ),
+      GoRoute(
+        path: '/create-team',
+        builder: (context, state) => const EditTeamScreen(),
+      ),
+      GoRoute(
+        path: '/edit-team/:id',
+        builder: (context, state) => EditTeamScreen(
+          teamId: state.pathParameters['id']!,
         ),
       ),
       GoRoute(
@@ -88,9 +101,13 @@ class AppRouter {
         ),
       ),
       GoRoute(
+        path: '/conversations',
+        builder: (context, state) => const ConversationsScreen(),
+      ),
+      GoRoute(
         path: '/chat/:id',
         builder: (context, state) => ChatScreen(
-          chatId: state.pathParameters['id']!,
+          conversationId: state.pathParameters['id']!,
         ),
       ),
       GoRoute(
@@ -106,6 +123,20 @@ class AppRouter {
       GoRoute(
         path: '/settings/privacy',
         builder: (context, state) => const PrivacyScreen(),
+      ),
+      GoRoute(
+        path: '/edit-profile',
+        builder: (context, state) => const EditProfileScreen(),
+      ),
+      GoRoute(
+        path: '/my-matches',
+        builder: (context, state) => const MyMatchesScreen(),
+      ),
+      GoRoute(
+        path: '/edit-match/:id',
+        builder: (context, state) => EditMatchScreen(
+          matchId: state.pathParameters['id']!,
+        ),
       ),
     ],
   );

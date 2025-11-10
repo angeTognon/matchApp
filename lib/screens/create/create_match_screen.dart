@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
+import 'package:amical_club/providers/auth_provider.dart';
+import 'package:amical_club/services/api_service.dart';
+import 'package:amical_club/models/team.dart';
 
 class CreateMatchScreen extends StatefulWidget {
   const CreateMatchScreen({super.key});
@@ -20,16 +25,34 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   String _selectedGender = '';
   bool _autoValidation = false;
   bool _loading = false;
+  String _displayDate = ''; // Pour l'affichage en français
+  List<String> _selectedFacilities = []; // Équipements sélectionnés
 
-  final List<Map<String, String>> _coachTeams = [
-    {'id': '1', 'name': 'FC Marseille Jeunes', 'category': 'U17', 'level': 'Départemental'},
-    {'id': '2', 'name': 'Olympic Provence Séniors', 'category': 'Séniors', 'level': 'Régional'},
-    {'id': '3', 'name': 'AS Aubagne Féminines', 'category': 'Séniors F', 'level': 'Départemental'}
-  ];
+  List<Team> _coachTeams = [];
 
   final List<String> _categories = ['U6', 'U8', 'U10', 'U12', 'U14', 'U16', 'U17', 'U19', 'Séniors', 'Vétérans'];
   final List<String> _levels = ['Loisir', 'Départemental', 'Régional', 'National'];
   final List<String> _genders = ['Masculin', 'Féminin', 'Mixte'];
+  
+  // Équipements disponibles avec icônes
+  final List<Map<String, dynamic>> _facilities = [
+    {'name': 'Vestiaires', 'icon': Icons.dry_cleaning, 'description': 'Vestiaires disponibles'},
+    {'name': 'Douches', 'icon': Icons.shower, 'description': 'Douches après le match'},
+    {'name': 'Parking', 'icon': Icons.local_parking, 'description': 'Parking gratuit'},
+    {'name': 'Éclairage', 'icon': Icons.lightbulb, 'description': 'Éclairage du terrain'},
+    {'name': 'Tribunes', 'icon': Icons.chair, 'description': 'Tribunes pour spectateurs'},
+    {'name': 'Buvette', 'icon': Icons.local_drink, 'description': 'Buvette sur place'},
+    {'name': 'Médecin', 'icon': Icons.medical_services, 'description': 'Médecin présent'},
+    {'name': 'Arbitre', 'icon': Icons.sports, 'description': 'Arbitre fourni'},
+    {'name': 'Ballons', 'icon': Icons.sports_soccer, 'description': 'Ballons fournis'},
+    {'name': 'Chasubles', 'icon': Icons.checkroom, 'description': 'Chasubles disponibles'},
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCoachTeams();
+  }
 
   @override
   void dispose() {
@@ -41,9 +64,59 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     super.dispose();
   }
 
+  Future<void> _loadCoachTeams() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    if (authProvider.currentCoach != null) {
+      setState(() {
+        _coachTeams = authProvider.currentCoach!.teams;
+      });
+    }
+  }
+
+  Future<void> _selectDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 1)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    
+    if (picked != null) {
+      setState(() {
+        // Stocker la date au format ISO pour l'envoi
+        _dateController.text = "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
+        // Stocker l'affichage en français
+        _displayDate = "${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year}";
+      });
+    }
+  }
+
+  Future<void> _selectTime() async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: const TimeOfDay(hour: 15, minute: 0),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: Theme.of(context).colorScheme.copyWith(
+              primary: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    
+    if (picked != null) {
+      setState(() {
+        _timeController.text = "${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}";
+      });
+    }
+  }
+
   Future<void> _handleSubmit() async {
     if (_selectedTeam.isEmpty || 
-        _dateController.text.isEmpty || 
+        _displayDate.isEmpty || 
         _timeController.text.isEmpty || 
         _locationController.text.isEmpty || 
         _selectedCategory.isEmpty) {
@@ -53,42 +126,84 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       return;
     }
 
-    setState(() => _loading = true);
-    
-    // Simulate match creation
-    await Future.delayed(const Duration(seconds: 2));
-    
-    setState(() => _loading = false);
+    // La date est déjà au format ISO (AAAA-MM-JJ)
+    final isoDate = _dateController.text;
+    print('Date à envoyer: $isoDate');
 
-    if (mounted) {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Match Proposé !'),
-          content: const Text('Votre demande de match a été publiée avec succès.'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                // Reset form
-                setState(() {
-                  _selectedTeam = '';
-                  _selectedCategory = '';
-                  _selectedLevel = '';
-                  _selectedGender = '';
-                  _autoValidation = false;
-                });
-                _dateController.clear();
-                _timeController.clear();
-                _locationController.clear();
-                _stadiumController.clear();
-                _notesController.clear();
-              },
-              child: const Text('OK'),
-            ),
-          ],
-        ),
+    setState(() => _loading = true);
+
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      
+      final response = await ApiService.createMatch(
+        token: authProvider.token!,
+        teamId: _selectedTeam,
+        date: isoDate,
+        time: _timeController.text,
+        location: _locationController.text,
+        category: _selectedCategory,
+        level: _selectedLevel.isNotEmpty ? _selectedLevel : null,
+        gender: _selectedGender.isNotEmpty ? _selectedGender : null,
+        stadium: _stadiumController.text.isNotEmpty ? _stadiumController.text : null,
+        description: _notesController.text.isNotEmpty ? _notesController.text : null,
+        facilities: _selectedFacilities.isNotEmpty ? _selectedFacilities : null,
+        autoValidation: _autoValidation,
       );
+
+      setState(() => _loading = false);
+
+      if (mounted) {
+        if (response['success'] == true) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Match Proposé !'),
+              content: const Text('Votre demande de match a été publiée avec succès.'),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    // Reset form
+                    setState(() {
+                      _selectedTeam = '';
+                      _selectedCategory = '';
+                      _selectedLevel = '';
+                      _selectedGender = '';
+                      _selectedFacilities = [];
+                      _autoValidation = false;
+                    });
+                    _dateController.clear();
+                    _timeController.clear();
+                    _locationController.clear();
+                    _stadiumController.clear();
+                    _notesController.clear();
+                    // Retourner à l'accueil
+                    context.go('/main');
+                  },
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(response['message'] ?? 'Erreur lors de la publication'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      setState(() => _loading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -147,7 +262,9 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                       onPressed: () => _showTeamPicker(),
                       icon: Icon(Icons.groups, color: Theme.of(context).textTheme.bodyMedium?.color),
                       label: Text(
-                        _selectedTeam.isEmpty ? 'Sélectionner une équipe' : _selectedTeam,
+                        _selectedTeam.isEmpty 
+                            ? 'Sélectionner une équipe' 
+                            : _coachTeams.firstWhere((team) => team.id == _selectedTeam, orElse: () => _coachTeams.first).name,
                         style: TextStyle(
                           color: _selectedTeam.isEmpty ? Theme.of(context).textTheme.bodyMedium?.color : Theme.of(context).textTheme.titleMedium?.color,
                         ),
@@ -171,23 +288,39 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                     Row(
                       children: [
                         Expanded(
-                          child: TextField(
-                            controller: _dateController,
-                            style: TextStyle(color: Theme.of(context).textTheme.bodyMedium?.color),
-                            decoration: InputDecoration(
-                              labelText: 'Date (JJ/MM/AAAA)',
-                              prefixIcon: Icon(Icons.calendar_today, color: Theme.of(context).textTheme.bodyMedium?.color),
+                          child: OutlinedButton.icon(
+                            onPressed: () => _selectDate(),
+                            icon: Icon(Icons.calendar_today, color: Theme.of(context).textTheme.bodyMedium?.color),
+                            label: Text(
+                              _displayDate.isEmpty ? 'Sélectionner une date' : _displayDate,
+                              style: TextStyle(
+                                color: _displayDate.isEmpty 
+                                    ? Theme.of(context).textTheme.bodyMedium?.color 
+                                    : Theme.of(context).textTheme.titleMedium?.color,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: Theme.of(context).dividerColor),
+                              alignment: Alignment.centerLeft,
                             ),
                           ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
-                          child: TextField(
-                            controller: _timeController,
-                            style: TextStyle(color: Theme.of(context).textTheme.bodyMedium?.color),
-                            decoration: InputDecoration(
-                              labelText: 'Heure (HH:MM)',
-                              prefixIcon: Icon(Icons.access_time, color: Theme.of(context).textTheme.bodyMedium?.color),
+                          child: OutlinedButton.icon(
+                            onPressed: () => _selectTime(),
+                            icon: Icon(Icons.access_time, color: Theme.of(context).textTheme.bodyMedium?.color),
+                            label: Text(
+                              _timeController.text.isEmpty ? 'Sélectionner l\'heure' : _timeController.text,
+                              style: TextStyle(
+                                color: _timeController.text.isEmpty 
+                                    ? Theme.of(context).textTheme.bodyMedium?.color 
+                                    : Theme.of(context).textTheme.titleMedium?.color,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: Theme.of(context).dividerColor),
+                              alignment: Alignment.centerLeft,
                             ),
                           ),
                         ),
@@ -285,6 +418,120 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                     ),
                     const SizedBox(height: 25),
 
+                    // Équipements disponibles
+                    Text(
+                      'Équipements disponibles',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).textTheme.titleLarge?.color,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Sélectionnez les équipements disponibles pour ce match',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Theme.of(context).textTheme.bodyMedium?.color,
+                      ),
+                    ),
+                    const SizedBox(height: 15),
+                    
+                    // Grille des équipements
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        childAspectRatio: 3.5,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                      ),
+                      itemCount: _facilities.length,
+                      itemBuilder: (context, index) {
+                        final facility = _facilities[index];
+                        final isSelected = _selectedFacilities.contains(facility['name']);
+                        
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              if (isSelected) {
+                                _selectedFacilities.remove(facility['name']);
+                              } else {
+                                _selectedFacilities.add(facility['name']);
+                              }
+                            });
+                          },
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: isSelected 
+                                  ? Theme.of(context).colorScheme.primary.withOpacity(0.1)
+                                  : Theme.of(context).cardColor,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isSelected 
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Theme.of(context).dividerColor,
+                                width: isSelected ? 2 : 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const SizedBox(width: 12),
+                                Icon(
+                                  facility['icon'],
+                                  color: isSelected 
+                                      ? Theme.of(context).colorScheme.primary
+                                      : Theme.of(context).textTheme.bodyMedium?.color,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        facility['name'],
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: isSelected 
+                                              ? Theme.of(context).colorScheme.primary
+                                              : Theme.of(context).textTheme.titleMedium?.color,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      Text(
+                                        facility['description'],
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: Theme.of(context).textTheme.bodySmall?.color,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (isSelected)
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 12),
+                                    child: Icon(
+                                      Icons.check_circle,
+                                      color: Theme.of(context).colorScheme.primary,
+                                      size: 18,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 25),
+
                     // Notes
                     Text(
                       'Notes complémentaires',
@@ -374,7 +621,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                 ),
                 child: ListTile(
                   title: Text(
-                    team['name']!,
+                    team.name,
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -382,14 +629,14 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                     ),
                   ),
                   subtitle: Text(
-                    '${team['category']} • ${team['level']}',
+                    '${team.category} • ${team.level}',
                     style: TextStyle(
                       fontSize: 14,
                       color: Theme.of(context).textTheme.bodyMedium?.color,
                     ),
                   ),
                   onTap: () {
-                    setState(() => _selectedTeam = team['name']!);
+                    setState(() => _selectedTeam = team.id);
                     Navigator.of(context).pop();
                   },
                 ),

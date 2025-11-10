@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:amical_club/providers/match_provider.dart';
+import 'package:amical_club/providers/auth_provider.dart';
 
 class MatchScoreScreen extends StatefulWidget {
   final String matchId;
@@ -101,15 +102,30 @@ class _MatchScoreScreenState extends State<MatchScoreScreen> {
       return;
     }
 
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final matchProvider = Provider.of<MatchProvider>(context, listen: false);
-    await matchProvider.updateMatchScore(
-      widget.matchId,
-      homeScore,
-      awayScore,
-      homeScorers,
-      awayScorers,
-      _notesController.text,
+    
+    final success = await matchProvider.updateMatchScore(
+      token: authProvider.token!,
+      matchId: widget.matchId,
+      homeScore: homeScore,
+      awayScore: awayScore,
+      homeScorers: homeScorers,
+      awayScorers: awayScorers,
+      notes: _notesController.text,
     );
+
+    if (!success) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(matchProvider.errorMessage ?? 'Erreur lors de la mise à jour du score'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
 
     if (mounted) {
       showDialog(

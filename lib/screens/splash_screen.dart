@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import 'package:amical_club/providers/auth_provider.dart';
+import 'package:amical_club/widgets/app_logo.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -12,13 +15,27 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    _navigateToAuth();
+    _checkAuthenticationAndNavigate();
   }
 
-  _navigateToAuth() async {
-    await Future.delayed(const Duration(seconds: 2));
+  _checkAuthenticationAndNavigate() async {
+    // Attendre un peu pour l'effet visuel
+    await Future.delayed(const Duration(seconds: 1));
+    
     if (mounted) {
-      context.go('/auth/login');
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      
+      // Vérifier l'authentification
+      await authProvider.checkAuthentication();
+      
+      if (mounted) {
+        // Rediriger selon le statut de connexion
+        if (authProvider.isAuthenticated) {
+          context.go('/main');
+        } else {
+          context.go('/auth/login');
+        }
+      }
     }
   }
 
@@ -30,10 +47,7 @@ class _SplashScreenState extends State<SplashScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text(
-              '⚽',
-              style: TextStyle(fontSize: 80),
-            ),
+            const AppLogoLarge(),
             const SizedBox(height: 20),
             const Text(
               'Amical Club',

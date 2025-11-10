@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import 'package:amical_club/providers/auth_provider.dart';
+import 'package:amical_club/providers/chat_provider.dart';
+import 'package:amical_club/services/api_service.dart';
 
 class ContactScreen extends StatefulWidget {
   final String teamId;
@@ -13,6 +17,9 @@ class ContactScreen extends StatefulWidget {
 class _ContactScreenState extends State<ContactScreen> {
   final _messageController = TextEditingController();
   String _selectedTemplate = '';
+  Map<String, dynamic>? _teamData;
+  bool _isLoading = true;
+  String? _errorMessage;
 
   final List<Map<String, String>> _messageTemplates = [
     {
@@ -33,9 +40,51 @@ class _ContactScreenState extends State<ContactScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _loadTeamData();
+  }
+
+  @override
   void dispose() {
     _messageController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadTeamData() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    
+    if (authProvider.token == null) {
+      setState(() {
+        _errorMessage = 'Erreur d\'authentification';
+        _isLoading = false;
+      });
+      return;
+    }
+
+    try {
+      final response = await ApiService.getPublicTeam(
+        token: authProvider.token!,
+        teamId: widget.teamId,
+      );
+
+      if (response['success'] == true && response['data'] != null) {
+        setState(() {
+          _teamData = response['data'];
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _errorMessage = response['message'] ?? 'Erreur lors du chargement de l\'équipe';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Erreur de connexion: $e';
+        _isLoading = false;
+      });
+    }
   }
 
   void _selectTemplate(Map<String, String> template) {
@@ -45,30 +94,93 @@ class _ContactScreenState extends State<ContactScreen> {
     });
   }
 
-  void _sendMessage() {
+  void _sendMessage() async {
     if (_messageController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez saisir un message')),
+        const SnackBar(
+          content: Text('Veuillez saisir un message'),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Message envoyé !'),
-        content: const Text('Votre message a été envoyé à l\'équipe.'),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop(); // Ferme le dialog
-              context.push('/chat/${widget.teamId}'); // Navigue vers le chat
-            },
-            child: const Text('OK'),
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+
+    if (authProvider.token == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Erreur d\'authentification'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Utiliser les données de l'équipe déjà chargées
+    if (_teamData == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Données de l\'équipe non disponibles'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    try {
+      final coachId = _teamData!['coach_id']?.toString();
+
+      if (coachId != null) {
+        // Envoyer le message via le chat
+        final success = await chatProvider.sendMessage(
+          receiverId: coachId,
+          message: _messageController.text.trim(),
+          authProvider: authProvider,
+        );
+
+        if (success) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Message envoyé !'),
+              content: const Text('Votre message a été envoyé à l\'équipe.'),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop(); // Ferme le dialog
+                    context.push('/conversations'); // Navigue vers les conversations
+                  },
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(chatProvider.errorMessage ?? 'Erreur lors de l\'envoi du message'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Impossible de récupérer les informations du coach'),
+            backgroundColor: Colors.red,
           ),
-        ],
-      ),
-    );
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _proposeDate() {
@@ -110,7 +222,7 @@ class _ContactScreenState extends State<ContactScreen> {
           children: [
             const Text('Contacter'),
             Text(
-              'FC Marseille Amateur',
+              _teamData?['name'] ?? 'Chargement...',
               style: TextStyle(
                 fontSize: 14,
                 color: Theme.of(context).textTheme.bodyMedium?.color,
@@ -126,7 +238,36 @@ class _ContactScreenState extends State<ContactScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _errorMessage != null
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        size: 64,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        _errorMessage!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                          fontSize: 16,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: _loadTeamData,
+                        child: const Text('Réessayer'),
+                      ),
+                    ],
+                  ),
+                )
+              : SingleChildScrollView(
         child: Column(
           children: [
             // Carte équipe
@@ -140,7 +281,7 @@ class _ContactScreenState extends State<ContactScreen> {
               child: Column(
                 children: [
                   Text(
-                    'FC Marseille Amateur',
+                    _teamData?['name'] ?? 'Équipe',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -149,7 +290,7 @@ class _ContactScreenState extends State<ContactScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Entraîneur: Pierre Martin',
+                    'Entraîneur: ${_teamData?['coach_name'] ?? 'Non disponible'}',
                     style: TextStyle(
                       fontSize: 14,
                       color: Theme.of(context).textTheme.bodyMedium?.color,
@@ -157,7 +298,7 @@ class _ContactScreenState extends State<ContactScreen> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Séniors • Départemental',
+                    '${_teamData?['category'] ?? 'N/A'} • ${_teamData?['level'] ?? 'N/A'}',
                     style: TextStyle(
                       fontSize: 14,
                       color: Theme.of(context).colorScheme.primary,

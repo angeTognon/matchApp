@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:amical_club/providers/auth_provider.dart';
 import 'package:amical_club/config/app_theme.dart';
+import 'package:amical_club/widgets/app_logo.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -35,7 +36,15 @@ class _LoginScreenState extends State<LoginScreen> {
     final success = await authProvider.login(_emailController.text, _passwordController.text);
     
     if (success && mounted) {
+      // Connexion réussie, rediriger vers l'accueil
       context.go('/main');
+    } else if (mounted && authProvider.errorMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(authProvider.errorMessage!),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -48,7 +57,7 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             children: [
               const SizedBox(height: 40),
-              const Text('⚽', style: TextStyle(fontSize: 48)),
+              const AppLogoMedium(),
               const SizedBox(height: 20),
               const Text(
                 'Amical Club',

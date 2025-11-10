@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:amical_club/models/match.dart';
+import 'package:amical_club/constant.dart';
 
 class MatchCard extends StatelessWidget {
   final Match match;
@@ -38,7 +39,7 @@ class MatchCard extends StatelessWidget {
   void _handleCardPress(BuildContext context) {
     if (match.status == MatchStatus.finished) {
       context.push('/match/${match.id}/score');
-    } else if (match.createdBy == 'me' && match.requestsCount > 0) {
+    } else if (match.isOwner == true && match.requestsCount > 0) {
       context.push('/match/${match.id}/requests');
     } else {
       context.push('/match/${match.id}');
@@ -47,17 +48,75 @@ class MatchCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Déterminer si le match est confirmé
+    final isConfirmed = match.status == MatchStatus.confirmed;
+    final hasPendingRequests = match.requestsCount > 0;
+    
     return Card(
       margin: const EdgeInsets.only(bottom: 15),
-      child: Padding(
-        padding: const EdgeInsets.all(15),
+      child: InkWell(
+        onTap: () => _handleCardPress(context),
+        borderRadius: BorderRadius.circular(12),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Bandeau d'information en haut si le match a des demandes ou est confirmé
+            if (hasPendingRequests || isConfirmed)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isConfirmed 
+                      ? Colors.green.withOpacity(0.15)
+                      : Colors.orange.withOpacity(0.15),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    topRight: Radius.circular(12),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      isConfirmed ? Icons.check_circle : Icons.pending_actions,
+                      size: 16,
+                      color: isConfirmed ? Colors.green : Colors.orange,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      isConfirmed
+                          ? '✓ Match confirmé avec ${match.description ?? "une équipe"}'
+                          : '${match.requestsCount} demande${match.requestsCount > 1 ? 's' : ''} en attente',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: isConfirmed ? Colors.green : Colors.orange,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            
+            Padding(
+              padding: const EdgeInsets.all(15),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
             // Header avec nom équipe et statut
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Logo de l'équipe
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: Theme.of(context).colorScheme.surface,
+                  backgroundImage: match.teamLogo != null && match.teamLogo!.isNotEmpty
+                      ? NetworkImage('$baseUrl/${match.teamLogo}')
+                      : null,
+                  child: match.teamLogo == null || match.teamLogo!.isEmpty
+                      ? Icon(Icons.groups, color: Theme.of(context).textTheme.titleMedium?.color)
+                      : null,
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -97,20 +156,52 @@ class MatchCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: match.status.color,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    _getStatusText(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    // Badge de statut
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: match.status.color,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _getStatusText(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                     ),
-                  ),
+                    // Badge nombre de demandes si > 0
+                    if (match.requestsCount > 0) ...[
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.orange,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.mail, size: 12, color: Colors.white),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${match.requestsCount}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
@@ -169,12 +260,15 @@ class MatchCard extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: () => context.push('/contact/${match.id}'),
+                    onPressed: () => context.push('/contact/${match.teamId}'),
                     icon: const Icon(Icons.chat_bubble_outline, size: 16),
                     label: const Text('Contacter'),
                   ),
                 ),
               ],
+            ),
+                ],
+              ),
             ),
           ],
         ),

@@ -40,4 +40,29 @@ class Coach {
   }
 
   int get totalClubs => teams.map((team) => team.clubName).toSet().length;
+
+  // Convertir depuis JSON
+  factory Coach.fromJson(Map<String, dynamic> json, List<Team> teams) {
+    return Coach(
+      id: json['id']?.toString() ?? '',
+      name: json['name'] ?? '',
+      location: json['location'] ?? '',
+      licenseNumber: json['license_number'] ?? '',
+      experience: json['experience'] ?? '',
+      avatar: json['avatar'],
+      teams: teams,
+    );
+  }
+
+  // Convertir vers JSON
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'location': location,
+      'license_number': licenseNumber,
+      'experience': experience,
+      'avatar': avatar,
+    };
+  }
 }

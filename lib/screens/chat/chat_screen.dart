@@ -1,66 +1,94 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:amical_club/providers/auth_provider.dart';
+import 'package:amical_club/providers/chat_provider.dart';
+import 'package:amical_club/models/conversation.dart';
+import 'package:amical_club/models/message.dart';
+import 'package:amical_club/models/chat_user.dart';
+import 'package:intl/intl.dart';
 
 class ChatScreen extends StatefulWidget {
-  final String chatId;
+  final String conversationId;
 
-  const ChatScreen({super.key, required this.chatId});
+  const ChatScreen({
+    super.key,
+    required this.conversationId,
+  });
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final _messageController = TextEditingController();
-  final _scrollController = ScrollController();
+  final TextEditingController _messageController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  Conversation? _conversation;
+  bool _isSending = false;
 
-  final List<Map<String, dynamic>> _sampleMessages = [
-    {
-      'id': '1',
-      'text': 'Salut ! Votre équipe serait-elle disponible pour un match amical ce dimanche ?',
-      'timestamp': '14:30',
-      'isMe': false,
-    },
-    {
-      'id': '2',
-      'text': 'Bonjour ! Oui, nous sommes libres. À quelle heure ?',
-      'timestamp': '14:31',
-      'isMe': true,
-    },
-    {
-      'id': '3',
-      'text': 'Parfait ! Que pensez-vous de 15h au stade municipal ?',
-      'timestamp': '14:32',
-      'isMe': false,
-    },
-    {
-      'id': '4',
-      'text': 'Parfait pour dimanche à 15h !',
-      'timestamp': '14:32',
-      'isMe': true,
-    },
-  ];
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadMessages();
+    });
+  }
 
   @override
   void dispose() {
+    // Arrêter la mise à jour automatique des messages
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    chatProvider.stopMessageUpdates();
+    
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  void _sendMessage() {
-    if (_messageController.text.trim().isNotEmpty) {
-      setState(() {
-        _sampleMessages.add({
-          'id': DateTime.now().millisecondsSinceEpoch.toString(),
-          'text': _messageController.text.trim(),
-          'timestamp': '${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}',
-          'isMe': true,
-        });
-      });
+  void _loadMessages() {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    
+    // Charger les messages
+    chatProvider.loadMessages(widget.conversationId, authProvider);
+    
+    // Marquer les messages comme lus
+    chatProvider.markMessagesAsRead(widget.conversationId, authProvider);
+    
+    // Récupérer les informations de la conversation
+    _conversation = chatProvider.getConversationById(widget.conversationId);
+    
+    // Démarrer la mise à jour automatique des messages
+    chatProvider.startMessageUpdates(authProvider);
+  }
+
+  void _sendMessage() async {
+    if (_messageController.text.trim().isEmpty || _isSending) return;
+
+    final message = _messageController.text.trim();
       _messageController.clear();
-      
-      // Scroll to bottom
-      Future.delayed(const Duration(milliseconds: 100), () {
+    _isSending = true;
+
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+
+    // Trouver l'ID du destinataire
+    final otherUserId = _conversation?.otherUser.id;
+    if (otherUserId == null) {
+      _isSending = false;
+      return;
+    }
+
+    final success = await chatProvider.sendMessage(
+      receiverId: otherUserId,
+      message: message,
+      authProvider: authProvider,
+    );
+
+    _isSending = false;
+
+    if (success) {
+      // Faire défiler vers le bas
+      WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scrollController.hasClients) {
           _scrollController.animateTo(
             _scrollController.position.maxScrollExtent,
@@ -69,6 +97,16 @@ class _ChatScreenState extends State<ChatScreen> {
           );
         }
       });
+    } else {
+      // Afficher un message d'erreur
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(chatProvider.errorMessage ?? 'Erreur lors de l\'envoi du message'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -76,136 +114,358 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        title: _conversation != null
+            ? Row(
           children: [
-            const Text('FC Provence'),
-            Text(
-              'En ligne',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.green,
-                fontWeight: FontWeight.normal,
+                  _buildTeamAvatarForHeader(_conversation!.otherUser),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _conversation!.otherUser.name,
+                      style: const TextStyle(fontSize: 18),
               ),
             ),
           ],
-        ),
-        actions: [
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.phone),
-          ),
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.videocam),
+              )
+            : const Text('Chat'),
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        elevation: 0,
+      ),
+      body: Consumer<ChatProvider>(
+        builder: (context, chatProvider, child) {
+          if (chatProvider.isLoading && chatProvider.messages.isEmpty) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (chatProvider.errorMessage != null) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.error_outline,
+                    size: 64,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    chatProvider.errorMessage!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      fontSize: 16,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: _loadMessages,
+                    child: const Text('Réessayer'),
           ),
         ],
       ),
-      body: Column(
+            );
+          }
+
+          return Column(
         children: [
+              // Liste des messages
           Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(20),
-              itemCount: _sampleMessages.length,
-              itemBuilder: (context, index) {
-                final message = _sampleMessages[index];
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 15),
-                  child: Row(
-                    mainAxisAlignment: message['isMe'] 
-                        ? MainAxisAlignment.end 
-                        : MainAxisAlignment.start,
-                    children: [
-                      Container(
-                        constraints: BoxConstraints(
-                          maxWidth: MediaQuery.of(context).size.width * 0.8,
-                        ),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: message['isMe'] 
-                              ? Theme.of(context).colorScheme.primary 
-                              : Theme.of(context).cardColor,
-                          borderRadius: BorderRadius.circular(16).copyWith(
-                            bottomRight: message['isMe'] 
-                                ? const Radius.circular(4) 
-                                : const Radius.circular(16),
-                            bottomLeft: message['isMe'] 
-                                ? const Radius.circular(16) 
-                                : const Radius.circular(4),
-                          ),
-                        ),
+                child: chatProvider.messages.isEmpty
+                    ? Center(
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
+                            Icon(
+                              Icons.chat_bubble_outline,
+                              size: 64,
+                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                            ),
+                            const SizedBox(height: 16),
                             Text(
-                              message['text'],
+                              'Aucun message',
                               style: TextStyle(
-                                fontSize: 16,
-                                color: message['isMe'] ? Colors.white : Theme.of(context).textTheme.titleMedium?.color,
-                                height: 1.25,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: Theme.of(context).colorScheme.onSurface,
                               ),
                             ),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 8),
                             Text(
-                              message['timestamp'],
+                              'Envoyez votre premier message',
                               style: TextStyle(
-                                fontSize: 10,
-                                color: message['isMe'] ? Colors.white70 : Theme.of(context).textTheme.bodyMedium?.color,
+                                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
                               ),
                             ),
                           ],
                         ),
+                      )
+                    : ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.all(16),
+                        itemCount: chatProvider.messages.length,
+                        itemBuilder: (context, index) {
+                          final message = chatProvider.messages[index];
+                          return _buildMessageBubble(context, message);
+                        },
                       ),
-                    ],
+              ),
+              
+              // Zone de saisie
+              _buildMessageInput(),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildMessageBubble(BuildContext context, Message message) {
+    final isMyMessage = message.isMyMessage;
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        mainAxisAlignment: isMyMessage 
+            ? MainAxisAlignment.end 
+            : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (!isMyMessage) ...[
+            _buildTeamAvatarForMessage(message.sender),
+            const SizedBox(width: 8),
+          ],
+          
+          Flexible(
+            child: Container(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.7,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: isMyMessage
+                    ? Colors.green
+                    : Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(20).copyWith(
+                  bottomLeft: isMyMessage 
+                      ? const Radius.circular(20) 
+                      : const Radius.circular(4),
+                  bottomRight: isMyMessage 
+                      ? const Radius.circular(4) 
+                      : const Radius.circular(20),
+                ),
+                border: !isMyMessage 
+                    ? Border.all(
+                        color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                      )
+                    : null,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    message.message,
+                    style: TextStyle(
+                      color: isMyMessage
+                          ? Colors.white
+                          : Theme.of(context).colorScheme.onSurface,
+                      fontSize: 16,
+                    ),
                   ),
-                );
-              },
+                  const SizedBox(height: 4),
+                  Text(
+                    DateFormat('HH:mm').format(message.createdAt),
+                    style: TextStyle(
+                      color: isMyMessage
+                          ? Colors.white.withOpacity(0.7)
+                          : Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-          Container(
-            padding: const EdgeInsets.all(20),
+          
+          if (isMyMessage) ...[
+            const SizedBox(width: 8),
+            CircleAvatar(
+              radius: 16,
+              backgroundImage: message.sender.avatar != null && 
+                  message.sender.avatar!.isNotEmpty
+                  ? NetworkImage(message.sender.avatar!)
+                  : null,
+              child: message.sender.avatar == null || 
+                  message.sender.avatar!.isEmpty
+                  ? Text(
+                      message.sender.name.isNotEmpty 
+                          ? message.sender.name[0].toUpperCase() 
+                          : '?',
+                      style: const TextStyle(fontSize: 12),
+                    )
+                  : null,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMessageInput() {
+    return Container(
+      padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
+        color: Theme.of(context).colorScheme.surface,
+        border: Border(
+          top: BorderSide(
+            color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+          ),
+        ),
             ),
             child: Row(
               children: [
                 Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).cardColor,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
                     child: TextField(
                       controller: _messageController,
-                      style: TextStyle(color: Theme.of(context).textTheme.bodyMedium?.color),
                       decoration: InputDecoration(
                         hintText: 'Tapez votre message...',
-                        hintStyle: TextStyle(color: Theme.of(context).hintColor),
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: BorderSide.none,
+                ),
+                filled: true,
+                fillColor: Theme.of(context).colorScheme.surfaceVariant,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                       ),
                       maxLines: null,
+              textCapitalization: TextCapitalization.sentences,
                       onSubmitted: (_) => _sendMessage(),
                     ),
                   ),
-                ),
-                const SizedBox(width: 10),
+          const SizedBox(width: 8),
                 Container(
                   decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor,
+              color: Theme.of(context).colorScheme.primary,
                     shape: BoxShape.circle,
                   ),
                   child: IconButton(
-                    onPressed: _sendMessage,
-                    icon: Icon(Icons.send, color: Theme.of(context).textTheme.titleMedium?.color),
-                  ),
-                ),
-              ],
+              onPressed: _isSending ? null : _sendMessage,
+              icon: _isSending
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(
+                      Icons.send,
+                      color: Colors.white,
+                    ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildTeamAvatarForHeader(ChatUser user) {
+    // Priorité 1: Logo d'équipe (si disponible)
+    if (user.teams != null && user.teams!.isNotEmpty) {
+      final teamWithLogo = user.teams!.firstWhere(
+        (team) => team.logo != null && team.logo!.isNotEmpty,
+        orElse: () => user.teams!.first,
+      );
+      
+      if (teamWithLogo.logo != null && teamWithLogo.logo!.isNotEmpty) {
+        return CircleAvatar(
+          radius: 16,
+          backgroundImage: NetworkImage(teamWithLogo.logo!),
+          onBackgroundImageError: (exception, stackTrace) {
+            // En cas d'erreur de chargement de l'image, afficher l'avatar utilisateur
+          },
+          child: null,
+        );
+      }
+    }
+    
+    // Priorité 2: Avatar de l'utilisateur
+    if (user.avatar != null && user.avatar!.isNotEmpty) {
+      return CircleAvatar(
+        radius: 16,
+        backgroundImage: NetworkImage(user.avatar!),
+        onBackgroundImageError: (exception, stackTrace) {
+          // En cas d'erreur, afficher les initiales
+        },
+        child: Text(
+          user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
+          style: const TextStyle(fontSize: 14),
+        ),
+      );
+    }
+    
+    // Fallback: afficher les initiales
+    return CircleAvatar(
+      radius: 16,
+      backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+      child: Text(
+        user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
+        style: TextStyle(
+          fontSize: 14,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTeamAvatarForMessage(ChatUser user) {
+    // Priorité 1: Logo d'équipe (si disponible)
+    if (user.teams != null && user.teams!.isNotEmpty) {
+      final teamWithLogo = user.teams!.firstWhere(
+        (team) => team.logo != null && team.logo!.isNotEmpty,
+        orElse: () => user.teams!.first,
+      );
+      
+      if (teamWithLogo.logo != null && teamWithLogo.logo!.isNotEmpty) {
+        return CircleAvatar(
+          radius: 16,
+          backgroundImage: NetworkImage(teamWithLogo.logo!),
+          onBackgroundImageError: (exception, stackTrace) {
+            // En cas d'erreur de chargement de l'image, afficher l'avatar utilisateur
+          },
+          child: null,
+        );
+      }
+    }
+    
+    // Priorité 2: Avatar de l'utilisateur
+    if (user.avatar != null && user.avatar!.isNotEmpty) {
+      return CircleAvatar(
+        radius: 16,
+        backgroundImage: NetworkImage(user.avatar!),
+        onBackgroundImageError: (exception, stackTrace) {
+          // En cas d'erreur, afficher les initiales
+        },
+        child: Text(
+          user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
+          style: const TextStyle(fontSize: 12),
+        ),
+      );
+    }
+    
+    // Fallback: afficher les initiales
+    return CircleAvatar(
+      radius: 16,
+      backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+      child: Text(
+        user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
+        style: TextStyle(
+          fontSize: 12,
+          color: Theme.of(context).colorScheme.primary,
+        ),
       ),
     );
   }

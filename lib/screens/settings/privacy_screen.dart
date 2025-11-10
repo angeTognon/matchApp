@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:amical_club/services/permission_service.dart';
 
 class PrivacyScreen extends StatefulWidget {
   const PrivacyScreen({super.key});
@@ -7,22 +9,114 @@ class PrivacyScreen extends StatefulWidget {
   State<PrivacyScreen> createState() => _PrivacyScreenState();
 }
 
-class _PrivacyScreenState extends State<PrivacyScreen> {
+class _PrivacyScreenState extends State<PrivacyScreen> with WidgetsBindingObserver {
   Map<String, bool> _permissions = {
-    'camera': true,
-    'location': true,
+    'camera': false,
+    'location': false,
     'microphone': false,
-    'notifications': true,
-    'contacts': false,
+    'notifications': false,
   };
 
   Map<String, bool> _privacy = {
     'profileVisible': true,
     'showOnlineStatus': true,
-    'allowMessages': true,
-    'shareStats': false,
-    'dataCollection': true,
   };
+
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _loadPermissions();
+    _loadPrivacySettings();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // Recharger les permissions quand l'app revient au premier plan
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadPermissions();
+    }
+  }
+
+  // Charger l'état actuel des permissions
+  Future<void> _loadPermissions() async {
+    try {
+      final statuses = await PermissionService.checkAllPermissions();
+      if (mounted) {
+        setState(() {
+          _permissions = statuses;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Erreur lors du chargement des permissions: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  // Charger les paramètres de confidentialité
+  Future<void> _loadPrivacySettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted) {
+        setState(() {
+          _privacy['profileVisible'] = prefs.getBool('profileVisible') ?? true;
+          _privacy['showOnlineStatus'] = prefs.getBool('showOnlineStatus') ?? true;
+        });
+      }
+    } catch (e) {
+      print('Erreur lors du chargement des paramètres: $e');
+    }
+  }
+
+  // Sauvegarder les paramètres de confidentialité
+  Future<void> _savePrivacySetting(String key, bool value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(key, value);
+    } catch (e) {
+      print('Erreur lors de la sauvegarde: $e');
+    }
+  }
+
+  // Gérer le changement d'une permission
+  Future<void> _handlePermissionChange(String key, bool newValue) async {
+    final permission = PermissionService.getPermission(key);
+    final permissionName = PermissionService.getPermissionName(key);
+    final reason = PermissionService.getPermissionReason(key);
+
+    if (newValue) {
+      // L'utilisateur veut activer la permission
+      await PermissionService.requestPermission(
+        permission,
+        context: context,
+        permissionName: permissionName,
+        reason: reason,
+      );
+      
+      // Recharger l'état actuel
+      await _loadPermissions();
+    } else {
+      // L'utilisateur veut désactiver la permission
+      await PermissionService.revokePermission(context, permissionName);
+      
+      // Recharger l'état actuel après un délai
+      await Future.delayed(const Duration(milliseconds: 500));
+      await _loadPermissions();
+    }
+  }
 
   void _handleDataExport() {
     showDialog(
@@ -75,6 +169,19 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Confidentialité & Permissions'),
+        actions: [
+          if (_isLoading)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(16.0),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+        ],
       ),
       body: SingleChildScrollView(
         child: Column(
@@ -98,7 +205,7 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Gérez les autorisations accordées à l\'application.',
+                    'Gérez les autorisations accordées à l\'application. Les permissions sont vérifiées en temps réel.',
                     style: TextStyle(
                       fontSize: 14,
                       color: Theme.of(context).textTheme.bodyMedium?.color,
@@ -110,30 +217,34 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                   _buildPermissionItem(
                     icon: Icons.camera_alt,
                     title: 'Appareil photo',
-                    description: 'Pour prendre des photos de profil',
+                    description: 'Pour prendre des photos de profil et de logo',
                     value: _permissions['camera']!,
-                    onChanged: (value) => setState(() => _permissions['camera'] = value),
+                    onChanged: (value) => _handlePermissionChange('camera', value),
+                    isSystemPermission: true,
                   ),
                   _buildPermissionItem(
                     icon: Icons.location_on,
                     title: 'Localisation',
-                    description: 'Pour trouver des équipes proches',
+                    description: 'Pour trouver des équipes proches de vous',
                     value: _permissions['location']!,
-                    onChanged: (value) => setState(() => _permissions['location'] = value),
+                    onChanged: (value) => _handlePermissionChange('location', value),
+                    isSystemPermission: true,
                   ),
                   _buildPermissionItem(
                     icon: Icons.mic,
                     title: 'Microphone',
-                    description: 'Pour les appels vocaux',
+                    description: 'Pour les appels vocaux avec les coachs',
                     value: _permissions['microphone']!,
-                    onChanged: (value) => setState(() => _permissions['microphone'] = value),
+                    onChanged: (value) => _handlePermissionChange('microphone', value),
+                    isSystemPermission: true,
                   ),
                   _buildPermissionItem(
                     icon: Icons.notifications,
                     title: 'Notifications',
-                    description: 'Pour recevoir les alertes',
+                    description: 'Pour recevoir les alertes de matchs',
                     value: _permissions['notifications']!,
-                    onChanged: (value) => setState(() => _permissions['notifications'] = value),
+                    onChanged: (value) => _handlePermissionChange('notifications', value),
+                    isSystemPermission: true,
                   ),
                 ],
               ),
@@ -156,6 +267,15 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                       color: Theme.of(context).textTheme.titleLarge?.color,
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Gérez vos paramètres de confidentialité.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Theme.of(context).textTheme.bodyMedium?.color,
+                      height: 1.4,
+                    ),
+                  ),
                   const SizedBox(height: 20),
                   
                   _buildPermissionItem(
@@ -163,14 +283,22 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
                     title: 'Profil visible',
                     description: 'Permettre aux autres de voir votre profil',
                     value: _privacy['profileVisible']!,
-                    onChanged: (value) => setState(() => _privacy['profileVisible'] = value),
+                    onChanged: (value) {
+                      setState(() => _privacy['profileVisible'] = value);
+                      _savePrivacySetting('profileVisible', value);
+                    },
+                    isSystemPermission: false,
                   ),
                   _buildPermissionItem(
                     icon: Icons.public,
                     title: 'Statut en ligne',
                     description: 'Afficher quand vous êtes connecté',
                     value: _privacy['showOnlineStatus']!,
-                    onChanged: (value) => setState(() => _privacy['showOnlineStatus'] = value),
+                    onChanged: (value) {
+                      setState(() => _privacy['showOnlineStatus'] = value);
+                      _savePrivacySetting('showOnlineStatus', value);
+                    },
+                    isSystemPermission: false,
                   ),
                 ],
               ),
@@ -226,37 +354,111 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
     required String description,
     required bool value,
     required ValueChanged<bool> onChanged,
+    bool isSystemPermission = false,
   }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 15),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: value 
+            ? Theme.of(context).colorScheme.primary.withOpacity(0.05)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: value 
+              ? Theme.of(context).colorScheme.primary.withOpacity(0.3)
+              : Theme.of(context).dividerColor.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: Theme.of(context).textTheme.bodySmall?.color),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: value 
+                  ? Theme.of(context).colorScheme.primary.withOpacity(0.1)
+                  : Theme.of(context).dividerColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              icon, 
+              size: 20, 
+              color: value 
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).textTheme.bodySmall?.color,
+            ),
+          ),
           const SizedBox(width: 15),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                    color: Theme.of(context).textTheme.titleMedium?.color,
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).textTheme.titleMedium?.color,
+                      ),
+                    ),
+                    if (isSystemPermission) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'Système',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 4),
                 Text(
                   description,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
                     color: Theme.of(context).textTheme.bodyMedium?.color,
-                    height: 1.3,
+                    height: 1.4,
                   ),
                 ),
+                if (isSystemPermission && value)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.check_circle,
+                          size: 14,
+                          color: Colors.green,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Autorisé',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.green,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),
+          const SizedBox(width: 10),
           Switch(
             value: value,
             onChanged: onChanged,

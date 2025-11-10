@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import 'package:amical_club/config/app_theme.dart';
+import 'package:amical_club/providers/auth_provider.dart';
+import 'package:amical_club/widgets/app_logo.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -36,8 +39,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _handleRegister() async {
-    if (_teamNameController.text.isEmpty || 
-        _coachNameController.text.isEmpty ||
+    if (_coachNameController.text.isEmpty ||
         _emailController.text.isEmpty || 
         _passwordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -62,28 +64,46 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _loading = true);
     
-    // Simulate registration
-    await Future.delayed(const Duration(seconds: 2));
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final success = await authProvider.register(
+      email: _emailController.text,
+      password: _passwordController.text,
+      name: _coachNameController.text,
+      location: _locationController.text.isNotEmpty ? _locationController.text : null,
+      teamName: _teamNameController.text.isNotEmpty ? _teamNameController.text : null,
+      category: _categoryController.text.isNotEmpty ? _categoryController.text : null,
+      level: _levelController.text.isNotEmpty ? _levelController.text : null,
+    );
     
     setState(() => _loading = false);
     
     if (mounted) {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Compte créé !'),
-          content: const Text('Votre compte a été créé avec succès. Vous pouvez maintenant vous connecter.'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop(); // Ferme le dialog
-                context.push('/auth/login'); // Navigue vers la page de connexion
-              },
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
+      if (success) {
+        // Inscription réussie, connecter automatiquement l'utilisateur
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Compte créé !'),
+            content: const Text('Votre compte a été créé avec succès. Vous êtes maintenant connecté.'),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop(); // Ferme le dialog
+                  context.go('/main'); // Navigue directement vers l'accueil
+                },
+                child: const Text('Continuer'),
+              ),
+            ],
+          ),
+        );
+      } else if (authProvider.errorMessage != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(authProvider.errorMessage!),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -97,7 +117,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: Column(
             children: [
               const SizedBox(height: 30),
-              const Text('⚽', style: TextStyle(fontSize: 40)),
+              const AppLogoMedium(),
               const SizedBox(height: 20),
               const Text(
                 'Créer un compte',
@@ -134,7 +154,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 controller: _teamNameController,
                 style: const TextStyle(color: AppTheme.textPrimary),
                 decoration: const InputDecoration(
-                  labelText: 'Nom de l\'équipe *',
+                  labelText: 'Nom de l\'équipe',
                   prefixIcon: Icon(Icons.groups, color: AppTheme.textSecondary),
                 ),
               ),
